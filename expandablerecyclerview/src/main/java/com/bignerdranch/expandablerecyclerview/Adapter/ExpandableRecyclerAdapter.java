@@ -37,8 +37,10 @@ public abstract class ExpandableRecyclerAdapter<PVH extends ParentViewHolder, CV
         extends RecyclerView.Adapter<RecyclerView.ViewHolder> implements ParentViewHolder.ParentListItemExpandCollapseListener {
 
     private static final String EXPANDED_STATE_MAP = "ExpandableRecyclerAdapter.ExpandedStateMap";
+    private static final String FOOTER_VISIBILITY = "ExpandableRecyclerAdapter.FooterVisibility";
     private static final int TYPE_PARENT = 0;
     private static final int TYPE_CHILD = 1;
+    private static final int TYPE_FOOTER = 2;
 
     /**
      * A {@link List} of all currently expanded {@link ParentListItem} objects
@@ -50,6 +52,7 @@ public abstract class ExpandableRecyclerAdapter<PVH extends ParentViewHolder, CV
     private List<? extends ParentListItem> mParentItemList;
     private ExpandCollapseListener mExpandCollapseListener;
     private List<RecyclerView> mAttachedRecyclerViewPool;
+    private boolean isFooterVisible;
 
     /**
      * Allows objects to register themselves as expand/collapse listeners to be
@@ -93,6 +96,13 @@ public abstract class ExpandableRecyclerAdapter<PVH extends ParentViewHolder, CV
     }
 
     /**
+     * To make footer visible/invisible {@link #notifyDataSetChanged} should be called additionally
+     */
+    public void setFooterVisibility(boolean isFooterVisible) {
+        this.isFooterVisible = isFooterVisible;
+    }
+
+    /**
      * Implementation of Adapter.onCreateViewHolder(ViewGroup, int)
      * that determines if the list item is a parent or a child and calls through
      * to the appropriate implementation of either {@link #onCreateParentViewHolder(ViewGroup)}
@@ -112,6 +122,8 @@ public abstract class ExpandableRecyclerAdapter<PVH extends ParentViewHolder, CV
             return pvh;
         } else if (viewType == TYPE_CHILD) {
             return onCreateChildViewHolder(viewGroup);
+        } else if (viewType == TYPE_FOOTER) {
+            return onCreateFooter(viewGroup);
         } else {
             throw new IllegalStateException("Incorrect ViewType found");
         }
@@ -130,21 +142,25 @@ public abstract class ExpandableRecyclerAdapter<PVH extends ParentViewHolder, CV
      */
     @Override
     public void onBindViewHolder(RecyclerView.ViewHolder holder, int position) {
-        Object listItem = getListItem(position);
-        if (listItem instanceof ParentWrapper) {
-            PVH parentViewHolder = (PVH) holder;
-
-            if (parentViewHolder.shouldItemViewClickToggleExpansion()) {
-                parentViewHolder.setMainItemClickToExpand();
-            }
-
-            ParentWrapper parentWrapper = (ParentWrapper) listItem;
-            parentViewHolder.setExpanded(parentWrapper.isExpanded());
-            onBindParentViewHolder(parentViewHolder, position, parentWrapper.getParentListItem());
-        } else if (listItem == null) {
-            throw new IllegalStateException("Incorrect ViewHolder found");
+        if (isFooterVisible && position == mItemList.size()) {
+            onBindFooter();
         } else {
-            onBindChildViewHolder((CVH) holder, position, listItem);
+            Object listItem = getListItem(position);
+            if (listItem instanceof ParentWrapper) {
+                PVH parentViewHolder = (PVH) holder;
+
+                if (parentViewHolder.shouldItemViewClickToggleExpansion()) {
+                    parentViewHolder.setMainItemClickToExpand();
+                }
+
+                ParentWrapper parentWrapper = (ParentWrapper) listItem;
+                parentViewHolder.setExpanded(parentWrapper.isExpanded());
+                onBindParentViewHolder(parentViewHolder, position, parentWrapper.getParentListItem());
+            } else if (listItem == null) {
+                throw new IllegalStateException("Incorrect ViewHolder found");
+            } else {
+                onBindChildViewHolder((CVH) holder, position, listItem);
+            }
         }
     }
 
@@ -170,6 +186,8 @@ public abstract class ExpandableRecyclerAdapter<PVH extends ParentViewHolder, CV
      */
     public abstract CVH onCreateChildViewHolder(ViewGroup childViewGroup);
 
+    public abstract RecyclerView.ViewHolder onCreateFooter(ViewGroup childViewGroup);
+
     /**
      * Callback called from onBindViewHolder(RecyclerView.ViewHolder, int)
      * when the list item bound to is a parent.
@@ -182,6 +200,8 @@ public abstract class ExpandableRecyclerAdapter<PVH extends ParentViewHolder, CV
      *                       be bound to the {@code PVH}
      */
     public abstract void onBindParentViewHolder(PVH parentViewHolder, int position, ParentListItem parentListItem);
+
+    public abstract void onBindFooter();
 
     /**
      * Callback called from onBindViewHolder(RecyclerView.ViewHolder, int)
@@ -203,7 +223,7 @@ public abstract class ExpandableRecyclerAdapter<PVH extends ParentViewHolder, CV
      */
     @Override
     public int getItemCount() {
-        return mItemList.size();
+        return isFooterVisible ? mItemList.size() + 1 : mItemList.size();
     }
 
     /**
@@ -216,13 +236,17 @@ public abstract class ExpandableRecyclerAdapter<PVH extends ParentViewHolder, CV
      */
     @Override
     public int getItemViewType(int position) {
-        Object listItem = getListItem(position);
-        if (listItem instanceof ParentWrapper) {
-            return TYPE_PARENT;
-        } else if (listItem == null) {
-            throw new IllegalStateException("Null object added");
+        if (isFooterVisible && position == mItemList.size()) {
+            return TYPE_FOOTER;
         } else {
-            return TYPE_CHILD;
+            Object listItem = getListItem(position);
+            if (listItem instanceof ParentWrapper) {
+                return TYPE_PARENT;
+            } else if (listItem == null) {
+                throw new IllegalStateException("Null object added");
+            } else {
+                return TYPE_CHILD;
+            }
         }
     }
 
@@ -412,6 +436,7 @@ public abstract class ExpandableRecyclerAdapter<PVH extends ParentViewHolder, CV
      */
     public void onSaveInstanceState(Bundle savedInstanceState) {
         savedInstanceState.putSerializable(EXPANDED_STATE_MAP, generateExpandedStateMap());
+        savedInstanceState.putSerializable(FOOTER_VISIBILITY, isFooterVisible);
     }
 
     /**
@@ -434,6 +459,7 @@ public abstract class ExpandableRecyclerAdapter<PVH extends ParentViewHolder, CV
             return;
         }
 
+        isFooterVisible = savedInstanceState.getBoolean(FOOTER_VISIBILITY);
         HashMap<Integer, Boolean> expandedStateMap = (HashMap<Integer, Boolean>) savedInstanceState.getSerializable(EXPANDED_STATE_MAP);
         int fullCount = 0;
         int childCount = 0;
